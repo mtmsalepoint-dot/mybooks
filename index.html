@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#23307a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>BizBooks – Sales, Stock & Accounts</title>
 <style>
 :root{--bg:#eef1f6;--card:#fff;--ink:#121826;--mute:#667085;--line:#dfe3ec;--pri:#23307a;--pri2:#1a2560;--on:#fff;--acc:#f2a900;--ok:#0f7a3d;--bad:#b42318;--warn:#b54708;--soft:#e8ebf8;--inp:#f8f9fc;
@@ -872,6 +875,7 @@ async function init(){
  try{const id=localStorage.getItem(SK);ME=id?(DB.users.find(u=>u.id===id&&u.active)||null):null}catch(e){}
  autoBackup();if(ME)autoRecurring();render()}
 init();
+try{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(function(){})}catch(e){}
 </script>
 </body>
 </html>
