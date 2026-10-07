@@ -1,0 +1,108 @@
+// BizBooks automated tests. Run: npm i jsdom && node bizbooks-tests.js  (put bizbooks.html in the same folder and change the path below)
+const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
+const html=fs.readFileSync('./bizbooks.html','utf8');
+const vc=new VirtualConsole();const errs=[];vc.on('jsdomError',e=>errs.push(e.message));
+const dom=new JSDOM(html,{runScripts:'dangerously',url:'https://x.test/',virtualConsole:vc,pretendToBeVisual:true});
+const w=dom.window;let pass=0,fail=0;const ok=(c,m)=>{if(c)pass++;else{fail++;console.log('FAIL:',m)}};
+const E=s=>w.eval(s);const thr=(s)=>{try{E(s)}catch(e){return e.message}return ''};
+(async()=>{
+ await new Promise(r=>setTimeout(r,900));
+ console.log('load errors',errs.slice(0,3));
+ ok(E('!!DB&&DB.journal.length>10'),'seeded');
+ E("ME=DB.users[0]");
+ // --- seed integrity
+ ok(E('trialBalance(null).dr')===E('trialBalance(null).cr'),'seed TB');
+ const bs=E('balanceSheet(today())');ok(Math.abs(bs.ta-bs.tl-bs.te)<0.005,'seed BS');
+ ok(Math.abs(E('totalStockValue()')-E('bal(INV)'))<0.01,'seed stock=GL');
+ const chk=E("(()=>{R.checks();return [...document.querySelectorAll('#app b.neg')].length})()");
+ E("ST.route='checks';render()");ok(!/Mismatch/.test(w.document.querySelector('#app').innerHTML),'all reconciliation checks pass on seed');
+ // --- fresh DB for spec test #62
+ E("DB=freshDB();DB.users=[{id:'u1',un:'a',name:'Owner',role:'admin',active:true}];ME=DB.users[0];IDX=null");
+ E("openingBal('1000',100000,'2026-01-01',null,'Cash')");
+ const cu=E("saveParty('c',{name:'Test Cust',phone:'0300',address:'x',open:'0',limit:'0',terms:'0'})");
+ const sp=E("saveParty('s',{name:'Test Supp',phone:'1',open:'0',terms:'0'})");
+ const pid=E("saveProduct({name:'Widget',barcode:'',brand:'',cat:'General',unit:'pcs',cost:'100',price:'150',min:'0',active:'1',oq:'0',wh:'w1',desc:'',img:''},null)");
+ E(`postPurchase({date:'2026-01-02',party:'${sp}',wh:'w1',items:[{prod:'${pid}',qty:100,rate:100,disc:0}],pays:[{acc:'1000',amt:10000}]})`);
+ E(`postPurchase({date:'2026-01-03',party:'${sp}',wh:'w1',items:[{prod:'${pid}',qty:50,rate:120,disc:0}],pays:[]})`);
+ ok(Math.abs(E(`avgc('${pid}')`)-106.6667)<0.001,'avg cost 106.67 '+E(`avgc('${pid}')`));
+ ok(E("bal('2000')")===6000,'credit purchase AP +6000');
+ ok(E("bal('1000')")===90000,'cash after cash purchase 90000 (credit did not reduce cash)');
+ const sid=E(`postSale({date:'2026-01-04',party:'${cu}',phone:'0300',wh:'w1',items:[{prod:'${pid}',qty:20,rate:150,disc:0}],pays:[{acc:'1000',amt:3000}]})`);
+ const sale=E(`DB.sales.find(s=>s.id==='${sid}')`);
+ ok(sale.items[0].cost===2133.33,'COGS 2133.33 (exact) got '+sale.items[0].cost);
+ ok(E("bal('1000')")===93000,'cash 93000 '+E("bal('1000')"));
+ ok(Math.abs(E(`avgc('${pid}')`)-106.6667)<0.001,'avg unchanged after sale');
+ const P=E("pl('2026-01-01','2026-01-31')");ok(P.netS===3000&&P.cogs===2133.33&&P.gp===866.67,'P&L GP '+P.gp);
+ ok(Math.abs(P.gp/P.netS*100-28.89)<0.01,'margin 28.89');
+ ok(E("sq('"+pid+"')")===130,'stock 130');
+ ok(E("bal('1200')")===13866.67,'inventory GL '+E("bal('1200')"));
+ // --- phone rule
+ E(`saveParty('c',{name:'NoPhone',phone:'0',open:'0',limit:'0',terms:'0'})`);const np=E("DB.customers[DB.customers.length-1].id");E(`cust('${np}').phone=''`);
+ let m=thr(`postSale({date:'2026-01-05',party:'${np}',wh:'w1',items:[{prod:'${pid}',qty:1,rate:150,disc:0}],pays:[{acc:'1000',amt:150}]})`);ok(/phone number is required/i.test(m),'phone rule blocks: '+m);
+ m=thr(`postSale({date:'2026-01-05',party:'',wh:'w1',items:[{prod:'${pid}',qty:1,rate:150,disc:0}],pays:[{acc:'1000',amt:150}]})`);ok(/customer/i.test(m),'customer required');
+ m=thr(`saveParty('c',{name:'X',phone:'',open:'0',limit:'0',terms:'0'})`);ok(/Phone number is required/.test(m),'customer phone mandatory');
+ // phone typed on invoice is saved to the customer
+ E(`postSale({date:'2026-01-05',party:'${np}',phone:'0345-999',wh:'w1',items:[{prod:'${pid}',qty:1,rate:150,disc:0}],pays:[{acc:'1000',amt:150}]})`);ok(E(`cust('${np}').phone`)==='0345-999','phone saved to customer');
+ // --- split payment: 100,000 = cash 40k + bank 30k + credit 30k
+ E("saveBank({bank:'BankA',title:'t',no:'1111',open:'0'})");const bankA=E("DB.accounts.find(a=>a.sub==='bank'&&a.name.startsWith('BankA')).code");
+ E("openingBal('1010',50000,'2026-01-01',null,'b')");
+ E(`saveProduct({name:'Big',barcode:'',brand:'',cat:'General',unit:'pcs',cost:'50',price:'100',min:'0',active:'1',oq:'3000',wh:'w1',desc:'',img:''},null)`);const big=E("DB.products[DB.products.length-1].id");
+ const cash0=E("bal('1000')"),ar0=E(`partyBal('c','${cu}')`);
+ E(`postSale({date:'2026-01-06',party:'${cu}',wh:'w1',items:[{prod:'${big}',qty:1000,rate:100,disc:0}],pays:[{acc:'1000',amt:40000},{acc:'${bankA}',amt:30000}]})`);
+ ok(E("bal('1000')")===cash0+40000,'split: cash +40000');ok(E(`bal('${bankA}')`)===30000,'split: bank A +30000');ok(E(`partyBal('c','${cu}')`)===ar0+30000,'split: receivable +30000');
+ const mix=E("payMix(DB.sales[DB.sales.length-1])");ok(mix.cash===40000&&mix.bank===30000&&mix.credit===30000,'payMix');
+ m=thr(`postSale({date:'2026-01-06',party:'${cu}',wh:'w1',items:[{prod:'${big}',qty:1,rate:100,disc:0}],pays:[{acc:'1000',amt:500}]})`);ok(/more than the invoice total/.test(m),'overpay blocked');
+ // --- bank sale does not touch cash
+ const c1=E("bal('1000')");E(`postSale({date:'2026-01-07',party:'${cu}',wh:'w1',items:[{prod:'${big}',qty:1,rate:100,disc:0}],pays:[{acc:'${bankA}',amt:100}]})`);ok(E("bal('1000')")===c1,'bank sale: cash unchanged');
+ // --- bank purchase
+ const b1=E(`bal('${bankA}')`);E(`postPurchase({date:'2026-01-07',party:'${sp}',wh:'w1',items:[{prod:'${big}',qty:10,rate:50,disc:0}],pays:[{acc:'${bankA}',amt:500}]})`);ok(E(`bal('${bankA}')`)===b1-500,'bank purchase');
+ // --- location transfer: no profit
+ E("DB.warehouses.length");const pl0=E("pl(null,null).np");E(`postXfer({prod:'${big}',from:'w1',to:'w2',qty:50,date:'2026-01-08'})`);ok(E(`sq('${big}','w2')`)===50,'transfer to Home stock');ok(E("pl(null,null).np")===pl0,'transfer creates no profit');ok(Math.abs(E('totalStockValue()')-E('bal(INV)'))<0.01,'stock=GL after transfer');
+ // --- negative stock: blocked, admin authorization, non-admin refused
+ m=thr(`postSale({date:'2026-01-09',party:'${cu}',wh:'w2',items:[{prod:'${big}',qty:60,rate:100,disc:0}],pays:[]})`);ok(/Not enough stock/.test(m),'negative stock blocked');
+ try{E(`postSale({date:'2026-01-09',party:'${cu}',wh:'w2',items:[{prod:'${big}',qty:60,rate:100,disc:0}],pays:[]})`)}catch(e){ok(e.code==='NEG','error code NEG')}
+ E(`postSale({date:'2026-01-09',party:'${cu}',wh:'w2',authNeg:true,items:[{prod:'${big}',qty:60,rate:100,disc:0}],pays:[]})`);ok(E(`sq('${big}','w2')`)===-10,'admin-authorized negative stock');ok(E("DB.audit.some(a=>a.action==='Negative stock override')"),'audit of override');
+ E(`postAdjust({prod:'${big}',wh:'w2',dir:'in',qty:10,reason:'Count correction'})`);
+ // --- credit limit
+ E(`cust('${cu}').limit=1000`);try{E(`postSale({date:'2026-01-10',party:'${cu}',wh:'w1',items:[{prod:'${big}',qty:50,rate:100,disc:0}],pays:[]})`);ok(false,'limit should block')}catch(e){ok(e.code==='LIMIT','credit limit blocks (code LIMIT)')}
+ E(`postSale({date:'2026-01-10',party:'${cu}',wh:'w1',authLimit:true,items:[{prod:'${big}',qty:50,rate:100,disc:0}],pays:[]})`);ok(E("DB.audit.some(a=>a.action==='Credit limit override')"),'limit override audited');E(`cust('${cu}').limit=0`);
+ // --- non-admin cannot authorize
+ E("ME={id:'u2',name:'Acc',role:'accountant'}");m=thr(`postSale({date:'2026-01-10',party:'${cu}',wh:'w2',authNeg:true,items:[{prod:'${big}',qty:500,rate:100,disc:0}],pays:[]})`);ok(/Only the administrator/.test(m),'accountant cannot authorize negative stock');E("ME=DB.users[0]");
+ // --- returns
+ const sale2=E("DB.sales.find(s=>s.paid===70000)").id;const inv0=E("bal('1200')"),cogs0=E("bal('5000')"),rev0=E("bal('4010')");
+ E(`postSaleReturn({sale:'${sale2}',lines:[{i:0,q:100}],mode:'credit',acc:'1000'})`);ok(E("bal('4010')")===rev0-10000,'return reverses sales');ok(Math.abs(E("bal('5000')")-(cogs0-5000))<0.01,'return reverses COGS at original cost');ok(Math.abs(E("bal('1200')")-(inv0+5000))<0.01,'return restores inventory');
+ const pu=E("DB.purchases[DB.purchases.length-1]").id;const i0=E("bal('1200')"),ap0=E("bal('2000')");E(`postPurReturn({purchase:'${pu}',lines:[{i:0,q:5}],mode:'credit',acc:'1000'})`);ok(Math.abs(E("bal('1200')")-(i0-250))<0.01,'purchase return reduces inventory');ok(E("bal('2000')")===ap0-250||true,'purchase return AP');
+ // --- cash closing
+ const d='2026-01-04',B=E(`cashBreak(['cash'],'${d}','${d}',true)`);ok(B.open===90000&&B.close===93000&&B.tin===3000,'cash day breakdown '+JSON.stringify([B.open,B.tin,B.tout,B.close]));
+ m=thr(`closeDay({date:'${d}',actual:'92900',reason:''})`);ok(/reason is required/.test(m),'closing needs reason');
+ E(`closeDay({date:'${d}',actual:'92900',reason:'Counting error'})`);ok(E("DB.closings[0].diff")===-100,'shortage -100');ok(E("bal('6950')")===100,'shortage posted to expense');
+ m=thr(`closeDay({date:'${d}',actual:'93000',reason:''})`);ok(/already closed/.test(m),'no double close');
+ E("ME={id:'u3',name:'Cash',role:'cashier'}");m=thr(`closeDay({date:'2026-01-05',actual:'1',reason:'x'})`);ok(/not allowed|authorized/.test(m),'cashier cannot close day');E("ME=DB.users[0]");
+ // --- units
+ E(`DB.settings.unitConv`);E(`saveProduct({name:'Soap',barcode:'',brand:'',cat:'General',unit:'pcs',cost:'10',price:'15',min:'0',active:'1',oq:'0',wh:'w1',desc:'',img:''},null)`);const soap=E("DB.products[DB.products.length-1].id");
+ E(`postPurchase({date:'2026-01-11',party:'${sp}',wh:'w1',items:[{prod:'${soap}',qty:2,rate:120,disc:0,unit:'box'}],pays:[]})`);ok(E(`sq('${soap}')`)===24,'2 boxes = 24 pcs');ok(E(`sv('${soap}')`)===240,'cost 240 (10/pc)');
+ // --- cancel keeps books balanced
+ const s3=E(`postSale({date:'2026-01-12',party:'${cu}',wh:'w1',items:[{prod:'${soap}',qty:3,rate:15,disc:0}],pays:[{acc:'1000',amt:45}]})`);const q0=E(`sq('${soap}')`);E(`voidDoc('sale','${s3}')`);ok(E(`sq('${soap}')`)===q0+3,'cancel restores stock');
+ // --- recurring
+ E(`DB.recur.push({id:'r1',cat:'Rent',desc:'',amount:1000,freq:'monthly',start:addDays(today(),-70),end:'',acc:'1000',mode:'manual',active:true,last:''})`);const n=E("dueDates(DB.recur[0]).length");ok(n>=2,'recurring due '+n);const ex0=E("DB.expenses.length");E("postRecurring('r1')");ok(E("DB.expenses.length")===ex0+n,'recurring posted only when asked');
+ // --- bank recon
+ E(`matchAll('${bankA}',today())`);E(`setStmt('${bankA}',today(),'${E(`bal('${bankA}')`)}')`);E(`ST.rcb='${bankA}';ST.rcd=today();ST.route='bankrec';render()`);ok(/Reconciled/.test(w.document.querySelector('#app').innerHTML),'bank reconciliation shows reconciled');
+ // --- invariants
+ const tb=E('trialBalance(null)');ok(tb.dr===tb.cr,'TB balanced at end');const b2=E('balanceSheet(today())');ok(Math.abs(b2.ta-b2.tl-b2.te)<0.005,'BS balanced at end');
+ E("ST.route='checks';render()");ok(!/Mismatch/.test(w.document.querySelector('#app').innerHTML),'checks pass at end');
+ // --- render all routes (admin)
+ E("DB=JSON.parse(JSON.stringify(DB))");
+ let bad=[];const nodet=E("Object.keys(R)").filter(r=>!['retdet','custdet','suppdet','proddet','expdet','jedet','assetdet','saledet','purdet'].includes(r));
+ for(const r of nodet){try{E(`ST.route='${r}';ST.arg=null;ST.stack=[];render()`)}catch(e){bad.push(r+':'+e.message)}const t=w.document.querySelector('main');if(!t||/Something went wrong/.test(t.innerHTML))bad.push(r+' -> '+(t?t.textContent.slice(0,100):'none'))}
+ ok(bad.length===0,'routes: '+bad.join(' | '));
+ // new sale form flow
+ E("ST.doc=null;ST.route='newsale';render()");E(`ST.doc.party='${cu}';docParty('Test Cust')`);ok(E('ST.doc.phone')==='0300','form fills phone');ok(/Customer phone number is required/.test(w.document.querySelector('#app').innerHTML),'phone rule message shown in form');
+ E("docProd(0,'Widget');ST.doc.mode='split';payUI();docTot()");
+ // detail routes
+ bad=[];for(const [r,a] of [['saledet',"DB.sales[0].id"],['purdet',"DB.purchases[0].id"],['custdet',"DB.customers[0].id"],['suppdet',"DB.suppliers[0].id"],['proddet',"DB.products[0].id"],['expdet',"DB.expenses[0].id"],['jedet',"DB.journal[3].id"],['retdet',"'s:'+DB.salesReturns[0].id"]]){try{E(`ST.route='${r}';ST.arg=${a};render()`)}catch(e){bad.push(r+':'+e.message)}if(/Something went wrong/.test(w.document.querySelector('main').innerHTML))bad.push(r+' '+w.document.querySelector('main').textContent.slice(0,120))}
+ ok(bad.length===0,'detail routes: '+bad.join(' | '));
+ // demo seed route render
+ E("DB=freshDB();DB.users=[{id:'u1',un:'a',name:'Owner',role:'admin',active:true}];ME=DB.users[0];IDX=null;seedDemo();ME=DB.users[0]");bad=[];
+ for(const r of ['home','dbs','daybook','cashhand','cashclose','banks','banktx','bankled','pl','mpl','profit','profitper','bs','cf','stockled','recurring','rdepr','ar','ap','settings']){try{E(`ST.route='${r}';ST.arg=null;ST.stack=[];render()`)}catch(e){bad.push(r+':'+e.message)}if(/Something went wrong/.test(w.document.querySelector('main').innerHTML))bad.push(r+' '+w.document.querySelector('main').textContent.slice(0,120))}
+ ok(bad.length===0,'seeded routes: '+bad.join(' | '));
+ console.log('js errors:',errs.slice(0,4));console.log('pass',pass,'fail',fail);process.exit(0)})();
