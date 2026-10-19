@@ -136,7 +136,7 @@ const COA=[['1000','Cash in Hand','asset','cash'],['1010','Main Bank Account','a
 ['2000','Accounts Payable','liability','ap'],['2100','Output Sales Tax Payable','liability','taxout'],['2200','Loans Payable','liability',''],['2300','Other Liabilities','liability',''],
 ['3000','Owner Capital','equity',''],['3100','Retained Earnings','equity',''],['3200','Opening Balance Equity','equity',''],
 ['4000','Sales Revenue','revenue','','sales'],['4010','Sales Returns','revenue','','salesRet'],['4020','Sales Discounts','revenue','','salesDisc'],['4100','Other Income','revenue','','otherInc'],['4110','Interest Income','revenue','','otherInc'],['4120','Cash Excess','revenue','','otherInc'],
-['5000','Cost of Goods Sold','cogs','','cogs'],
+['5000','Cost of Goods Sold','cogs','','cogs'],['5020','Purchase Discounts Received','cogs','','cogs'],
 ['6000','Salaries & Wages','expense'],['6010','Rent','expense'],['6020','Electricity','expense'],['6030','Gas','expense'],['6040','Internet','expense'],['6050','Telephone','expense'],['6060','Fuel','expense'],['6070','Transport','expense'],['6080','Repairs','expense'],['6085','Maintenance','expense'],['6090','Office Expenses','expense'],['6100','Marketing & Advertising','expense'],['6110','Bank Charges','expense'],['6120','Insurance','expense'],['6130','Professional Fees','expense'],['6140','Taxes & Government Charges','expense'],['6150','Meals','expense'],['6160','Guest Expenses','expense'],['6170','Hospitality','expense'],['6180','Other Business Expenses','expense'],['6950','Cash Shortage','expense'],['6800','Stock Loss & Damage','expense'],['6900','Depreciation Expense','expense'],['6990','Miscellaneous Expenses','expense'],
 ['7000','Interest Expense','expense','','otherExp'],['7100','Other Losses','expense','','otherExp'],['7200','Income Tax Expense','expense','','tax']];
 const TYPES={asset:'Assets',liability:'Liabilities',equity:'Equity',revenue:'Revenue',cogs:'Cost of Goods Sold',expense:'Expenses'};
@@ -225,24 +225,24 @@ function postSale(d){need('sales');return tx(()=>{
  const due=r2(T.total-paid);
  if(due>0&&cu.limit>0&&partyBal('c',cu.id)+due>cu.limit){if(!d.authLimit){const e=new Error('Credit limit of '+money(cu.limit)+' would be exceeded for '+cu.name+'.');e.code='LIMIT';throw e}if(ME.role!=='admin')throw new Error('Only the administrator can authorize a credit-limit exception.');audit('Credit limit override','Sales',cu.name,null,{limit:cu.limit,due})}
  const q={};items.forEach(i=>q[i.prod]=(q[i.prod]||0)+i.qty);chkNeg(d,q,d.wh);
- const no=nx('INV'),id=uid();let cost=0;
+ const no=d.useNo||nx('INV'),id=uid();let cost=0;
  items.forEach(i=>{i.cost=outVal(i.prod,i.qty);cost+=i.cost;i.ret=0;i.costRet=0;i.discRet=0;stk(d.date,i.prod,d.wh,-i.qty,-i.cost,'sale',no,{type:'sale',id})});
  cost=r2(cost);const P={type:'c',id:cu.id},L=[{acc:AR,dr:T.total,party:P}];if(paid)L.push({acc:AR,cr:paid,party:P});pays.forEach(p=>L.push({acc:p.acc,dr:p.amt}));
  if(T.disc)L.push({acc:SDISC,dr:T.disc});L.push({acc:SALES,cr:T.gross});if(T.tax)L.push({acc:TOUT,cr:T.tax});
  const j1=post({date:d.date,ref:no,desc:'Sale '+no+' - '+cu.name,lines:L,src:{type:'sale',id}});
  const j2=cost?post({date:d.date,ref:no,desc:'Cost of goods sold '+no,lines:[{acc:COGS,dr:cost},{acc:INV,cr:cost}],src:{type:'sale',id}}):null;
- DB.sales.push(Object.assign({id,no,date:d.date,cust:cu.id,phone,wh:d.wh,sp:d.sp||ME.name,items,taxRate:taxR(d),pays,paid,paid0:paid,adj:0,status:'posted',notes:d.notes||'',jes:[j1.id].concat(j2?[j2.id]:[]),by:ME.name,t:Date.now()},T));
+ DB.sales.push(Object.assign({id,no,grp:d.grp||id,date:d.date,cust:cu.id,phone,wh:d.wh,sp:d.sp||ME.name,items,taxRate:taxR(d),pays,paid,paid0:paid,adj:0,status:'posted',notes:d.notes||'',jes:[j1.id].concat(j2?[j2.id]:[]),by:ME.name,t:Date.now()},T));
  audit('Posted','Sales',no,null,{total:T.total});return id})}
 function postPurchase(d){need('purchase');return tx(()=>{
  const items=cleanItems(d),T=calc(items,taxR(d)),{pays,paid}=normPays(d.pays,T.total);
  const su=d.party?supp(d.party):null;if(!su)throw new Error('Please choose a supplier.');
  const by={};pays.forEach(p=>by[p.acc]=(by[p.acc]||0)+p.amt);for(const a in by)chkFunds(a,r2(by[a]));
- const no=nx('PUR'),id=uid();
+ const no=d.useNo||nx('PUR'),id=uid();
  items.forEach(i=>{i.net=r2(i.qty*i.rate-i.disc);i.ret=0;i.netRet=0;stk(d.date,i.prod,d.wh,i.qty,i.net,'purchase',no,{type:'purchase',id});const p=prod(i.prod);if(i.qty)p.cost=r2(i.net/i.qty)});
  const P={type:'s',id:su.id},L=[{acc:INV,dr:T.net}];if(T.tax)L.push({acc:TIN,dr:T.tax});
  L.push({acc:AP,cr:T.total,party:P});if(paid)L.push({acc:AP,dr:paid,party:P});pays.forEach(p=>L.push({acc:p.acc,cr:p.amt}));
  const j=post({date:d.date,ref:no,desc:'Purchase '+no+' - '+su.name,lines:L,src:{type:'purchase',id}});
- DB.purchases.push(Object.assign({id,no,date:d.date,supp:su.id,wh:d.wh,items,taxRate:taxR(d),pays,paid,paid0:paid,adj:0,status:'posted',notes:d.notes||'',jes:[j.id],by:ME.name,t:Date.now()},T));
+ DB.purchases.push(Object.assign({id,no,grp:d.grp||id,date:d.date,supp:su.id,wh:d.wh,items,taxRate:taxR(d),pays,paid,paid0:paid,adj:0,status:'posted',notes:d.notes||'',jes:[j.id],by:ME.name,t:Date.now()},T));
  audit('Posted','Purchases',no,null,{total:T.total});return id})}
 function postSaleReturn(d){need('sales');return tx(()=>{
  const s=DB.sales.find(x=>x.id===d.sale);if(!s||s.status!=='posted')throw new Error('Invoice not found or cancelled.');
@@ -277,22 +277,58 @@ function postPurReturn(d){need('purchase');return tx(()=>{
 function allocate(list,amt){let left=amt;const al=[];list.sort(byD).forEach(s=>{if(left<=0)return;const a=r2(Math.min(left,outs(s)));if(a<=0)return;s.paid=r2(s.paid+a);left=r2(left-a);al.push({doc:s.id,amt:a})});return al}
 function receive(d){need('sales');return tx(()=>{const cu=cust(d.party);if(!cu)throw new Error('Choose a customer.');const amt=r2(num(d.amount));if(amt<=0)throw new Error('Enter an amount.');
  const b=partyBal('c',cu.id);if(amt>b+0.001)throw new Error(cu.name+' owes only '+money(b)+'.');if(!acc(d.acc))throw new Error('Choose where the money goes.');
- const no=nx('RCT'),id=uid(),date=d.date||today();const al=allocate(DB.sales.filter(s=>s.cust===cu.id&&s.status==='posted'&&outs(s)>0),amt);
+ const no=d.useNo||nx('RCT'),id=uid(),date=d.date||today();const al=allocate(DB.sales.filter(s=>s.cust===cu.id&&s.status==='posted'&&outs(s)>0),amt);
  const j=post({date,ref:no,desc:'Payment received from '+cu.name,lines:[{acc:d.acc,dr:amt},{acc:AR,cr:amt,party:{type:'c',id:cu.id}}],src:{type:'cpay',id}});
  DB.payments.push({id,no,kind:'c',party:cu.id,date,acc:d.acc,amount:amt,ref:d.ref||'',alloc:al,je:j.id,status:'posted',t:Date.now()});audit('Payment','Customers',no,null,{amt});return id})}
 function payout(d){need('purchase');return tx(()=>{const su=supp(d.party);if(!su)throw new Error('Choose a supplier.');const amt=r2(num(d.amount));if(amt<=0)throw new Error('Enter an amount.');
  const b=partyBal('s',su.id);if(amt>b+0.001)throw new Error('You owe '+su.name+' only '+money(b)+'.');chkFunds(d.acc,amt);
- const no=nx('PAY'),id=uid(),date=d.date||today();const al=allocate(DB.purchases.filter(s=>s.supp===su.id&&s.status==='posted'&&outs(s)>0),amt);
+ const no=d.useNo||nx('PAY'),id=uid(),date=d.date||today();const al=allocate(DB.purchases.filter(s=>s.supp===su.id&&s.status==='posted'&&outs(s)>0),amt);
  const j=post({date,ref:no,desc:'Payment made to '+su.name,lines:[{acc:AP,dr:amt,party:{type:'s',id:su.id}},{acc:d.acc,cr:amt}],src:{type:'spay',id}});
  DB.payments.push({id,no,kind:'s',party:su.id,date,acc:d.acc,amount:amt,ref:d.ref||'',alloc:al,je:j.id,status:'posted',t:Date.now()});audit('Payment','Suppliers',no,null,{amt});return id})}
-function voidDoc(kind,id){return tx(()=>{const isS=kind==='sale';need(isS?'sales':'purchase');const L=isS?DB.sales:DB.purchases,s=L.find(x=>x.id===id);
- if(!s||s.status!=='posted')throw new Error('Already cancelled.');
- if(s.items.some(i=>i.ret>0)||r2(s.paid-s.paid0)||s.adj)throw new Error('This document has returns or later payments. Cancel the payments first (or use a return).');
+function voidCore(kind,id,keep){const isS=kind==='sale',L=isS?DB.sales:DB.purchases,s=L.find(x=>x.id===id);if(!s||s.status!=='posted')throw new Error('Already cancelled.');
+ if(keep){if(s.items.some(i=>i.ret>0))throw new Error('This invoice has returns, so it cannot be edited. Cancel or reduce the returns first.')}else if(s.items.some(i=>i.ret>0)||r2(s.paid-s.paid0)||s.adj)throw new Error('This document has returns or later payments or discounts. Cancel those first (or use a return).');
  s.jes.forEach(j=>reverse(j,'Cancelled '+s.no));
  DB.stockTx.filter(x=>x.src&&x.src.id===id&&x.src.type===kind).forEach(x=>stk(s.date,x.prod,x.wh,-x.qty,-x.val,'void',s.no,{type:kind,id}));
- s.status='cancelled';audit('Cancelled',isS?'Sales':'Purchases',s.no)})}
-function voidPayment(id){return tx(()=>{const p=DB.payments.find(x=>x.id===id);need(p.kind==='c'?'sales':'purchase');if(p.status!=='posted')throw new Error('Already cancelled.');
- reverse(p.je,'Cancelled '+p.no);const L=p.kind==='c'?DB.sales:DB.purchases;p.alloc.forEach(a=>{const d=L.find(x=>x.id===a.doc);if(d)d.paid=r2(d.paid-a.amt)});p.status='cancelled';audit('Cancelled','Payments',p.no)})}
+ s.status='cancelled';return s}
+function voidDoc(kind,id){return tx(()=>{need(kind==='sale'?'sales':'purchase');const s=voidCore(kind,id);audit('Cancelled',kind==='sale'?'Sales':'Purchases',s.no)})}
+function editDoc(kind,id,d){const isS=kind==='sale';need(isS?'sales':'purchase');return tx(()=>{const L=isS?DB.sales:DB.purchases,o=L.find(x=>x.id===id);if(!o||o.status!=='posted')throw new Error('Only posted invoices can be edited.');
+ const before={total:o.total,paid:o.paid,date:o.date,party:isS?o.cust:o.supp},later=r2(o.paid-o.paid0),adjOld=o.adj||0,adjs=o.adjs||[];
+ voidCore(kind,id,true);const grp=o.grp||o.id;o.grp=grp;const oldNo=o.no;let n=1;while(L.some(x=>x.no===oldNo+'-OLD'+n))n++;o.no=oldNo+'-OLD'+n;
+ const nid=isS?postSale(Object.assign({},d,{useNo:oldNo,grp})):postPurchase(Object.assign({},d,{useNo:oldNo,grp}));
+ const nw=L.find(x=>x.id===nid);nw.paid=r2(nw.paid+later);nw.adj=adjOld;nw.adjs=adjs;o.adjs=[];o.adj=0;o.paid=o.paid0;
+ if(outs(nw)<-0.004)throw new Error('The new total ('+money(nw.total)+') is less than the amounts already settled by later payments or discounts. Raise the total or cancel the later payment/discount first.');
+ DB.payments.forEach(p=>(p.alloc||[]).forEach(x=>{if(x.doc===id)x.doc=nid}));adjs.forEach(x=>{const j=DB.journal.find(y=>y.id===x.je);if(j)j.src.id=nid});
+ audit('Edited',isS?'Sales':'Purchases',oldNo,before,{total:nw.total,laterPayments:later,discounts:adjOld});return nid})}
+function adjustDoc(kind,id,amount,reason){return tx(()=>{const isS=kind==='sale';need(isS?'sales':'purchase');const L=isS?DB.sales:DB.purchases,s=L.find(x=>x.id===id);if(!s||s.status!=='posted')throw new Error('Only posted invoices can get a discount.');
+ const amt=r2(num(amount));if(amt<=0)throw new Error('Enter the discount amount.');if(amt>outs(s)+0.001)throw new Error('Discount cannot be more than the balance due ('+money(outs(s))+').');
+ const P={type:isS?'c':'s',id:isS?s.cust:s.supp},date=today();
+ const je=post({date,ref:s.no,desc:(isS?'Discount allowed on ':'Discount received on ')+s.no+(reason?' - '+reason:''),lines:isS?[{acc:SDISC,dr:amt},{acc:AR,cr:amt,party:P}]:[{acc:AP,dr:amt,party:P},{acc:'5020',cr:amt}],src:{type:'docadj',id}});
+ s.adj=r2((s.adj||0)+amt);(s.adjs=s.adjs||[]).push({je:je.id,amt,date,reason:reason||''});audit('Discount',isS?'Sales':'Purchases',s.no,null,{amt,reason});return je.id})}
+function removeAdj(kind,id,i){return tx(()=>{const isS=kind==='sale';need(isS?'sales':'purchase');const s=(isS?DB.sales:DB.purchases).find(x=>x.id===id),a=s&&(s.adjs||[])[i];if(!a)throw new Error('Discount not found.');
+ reverse(a.je,'Discount removed on '+s.no);s.adj=r2(s.adj-a.amt);s.adjs.splice(i,1);audit('Discount removed',isS?'Sales':'Purchases',s.no,{amt:a.amt},null)})}
+function rebuildRun(p){let q=0,v_=0;DB.stockTx.filter(s=>s.prod===p).forEach(s=>{q=r2(q+s.qty);v_=r2(v_+s.val);s.rq=q;s.rv=v_;s.ra=q>0?r2(v_/q):0})}
+function deleteDoc(kind,id){return tx(()=>{if(!ME||ME.role!=='admin')throw new Error('Only the administrator can delete invoices.');const isS=kind==='sale',L=isS?DB.sales:DB.purchases,o=L.find(x=>x.id===id);if(!o)throw new Error('Document not found.');
+ if(o.status==='posted')voidCore(kind,id);
+ const grp=o.grp?L.filter(x=>x.grp===o.grp):[o],ids=new Set(grp.map(x=>x.id)),jids=new Set();grp.forEach(x=>x.jes.forEach(j=>jids.add(j)));
+ const prods=new Set(DB.stockTx.filter(s=>s.src&&ids.has(s.src.id)&&s.src.type===kind).map(s=>s.prod));
+ DB.journal=DB.journal.filter(j=>!(jids.has(j.id)||(j.src&&j.src.type==='reversal'&&jids.has(j.src.of))));
+ DB.stockTx=DB.stockTx.filter(s=>!(s.src&&ids.has(s.src.id)&&s.src.type===kind));prods.forEach(rebuildRun);
+ if(isS)DB.sales=DB.sales.filter(x=>!ids.has(x.id));else DB.purchases=DB.purchases.filter(x=>!ids.has(x.id));
+ audit('Deleted',isS?'Sales':'Purchases',o.no,{date:o.date,total:o.total,party:isS?custName(o.cust):suppName(o.supp),items:o.items.length},null);IDX=null})}
+const SYSACC=[AR,AP,INV,TIN,TOUT,FA,AD,SALES,SRET,SDISC,COGS,DEPX,SLOSS,OBE,OINC,OLOSS,'1000','3000','3100','4120','6950','7200'];
+function deleteAccount(code){return tx(()=>{if(!ME||ME.role!=='admin')throw new Error('Only the administrator can delete accounts.');
+ if(SYSACC.includes(code))throw new Error('This is a system account the app depends on, so it cannot be deleted. You can make it inactive instead.');
+ if(DB.journal.some(j=>j.lines.some(l=>l.acc===code)))throw new Error('This account has transactions, so it cannot be deleted. Make it inactive instead.');
+ if(DB.settings.expCats.some(c=>c.acc===code))throw new Error('An expense category uses this account. Change that category in Settings first.');
+ if(DB.recur.some(r=>r.acc===code))throw new Error('A recurring expense uses this account. Remove that rule first.');
+ if(DB.accounts.some(a=>a.parent===code))throw new Error('Other accounts are placed under this account. Change them first.');
+ if(!acc(code))throw new Error('Account not found.');
+ DB.accounts=DB.accounts.filter(a=>a.code!==code);DB.banks=DB.banks.filter(b=>b.code!==code);audit('Deleted','Accounts',code)})}
+function voidPaymentCore(id){const p=DB.payments.find(x=>x.id===id);if(!p||p.status!=='posted')throw new Error('Already cancelled.');reverse(p.je,'Cancelled '+p.no);const L=p.kind==='c'?DB.sales:DB.purchases;p.alloc.forEach(a=>{const d=L.find(x=>x.id===a.doc);if(d)d.paid=r2(d.paid-a.amt)});p.status='cancelled';return p}
+function voidPayment(id){return tx(()=>{const p0=DB.payments.find(x=>x.id===id);need(p0.kind==='c'?'sales':'purchase');const p=voidPaymentCore(id);audit('Cancelled','Payments',p.no)})}
+function editPayment(id,d){return tx(()=>{const p=DB.payments.find(x=>x.id===id);if(!p||p.status!=='posted')throw new Error('Only posted payments can be edited.');need(p.kind==='c'?'sales':'purchase');
+ const oldNo=p.no,oldAmt=p.amount;voidPaymentCore(id);let n=1;while(DB.payments.some(x=>x.no===oldNo+'-OLD'+n))n++;p.no=oldNo+'-OLD'+n;
+ const nid=(p.kind==='c'?receive:payout)({party:p.party,amount:d.amount,acc:d.acc,date:d.date,ref:d.ref,useNo:oldNo});audit('Edited','Payments',oldNo,{amount:oldAmt},{amount:num(d.amount)});return nid})}
 function postExpense(d){need('expenses');return tx(()=>{const c=DB.settings.expCats.find(x=>x.name===d.cat);if(!c)throw new Error('Choose a category.');const amt=r2(num(d.amount));if(amt<=0)throw new Error('Enter an amount.');if(!d.date)throw new Error('Choose a date.');chkFunds(d.acc,amt);
  const no=nx('EXP'),id=uid();const j=post({date:d.date,ref:no,desc:c.name+(d.desc?' - '+d.desc:''),lines:[{acc:c.acc,dr:amt},{acc:d.acc,cr:amt}],src:{type:'expense',id}});
  DB.expenses.push({id,no,date:d.date,cat:c.name,accExp:c.acc,desc:d.desc||'',amount:amt,acc:d.acc,paidTo:d.paidTo||'',ref:d.ref||'',notes:d.notes||'',img:d.img||'',je:j.id,status:'posted',by:ME.name,t:Date.now()});audit('Posted','Expenses',no,null,{amt});return id})}
@@ -361,7 +397,7 @@ function balanceSheet(t){const B=ty=>DB.accounts.filter(a=>a.type===ty).map(a=>(
  const A=B('asset'),L=B('liability'),E=B('equity'),profit=r2(-DB.accounts.filter(a=>['revenue','cogs','expense'].includes(a.type)).reduce((s,a)=>s+net(a.code,null,t),0));
  const S=a=>r2(a.reduce((x,y)=>x+y.v,0));return{A,L,E,profit,ta:S(A),tl:S(L),te:r2(S(E)+profit)}}
 function trialBalance(t){const rows=DB.accounts.map(a=>{const n=net(a.code,null,t);return{code:a.code,name:a.name,dr:n>0?n:0,cr:n<0?-n:0}}).filter(x=>x.dr||x.cr);return{rows,dr:r2(rows.reduce((s,x)=>s+x.dr,0)),cr:r2(rows.reduce((s,x)=>s+x.cr,0))}}
-const SRCN={sale:'Sales',sret:'Sales returns',purchase:'Purchases',pret:'Purchase returns',cpay:'Customer receipts',spay:'Supplier payments',expense:'Expenses',asset:'Asset purchases',dispose:'Asset disposals',depr:'Depreciation',transfer:'Transfers',adjust:'Stock adjustments',open:'Opening balances',manual:'Manual journals',cashtx:'Other receipts/payments',reversal:'Cancellations'};
+const SRCN={docadj:'Discounts after invoice',sale:'Sales',sret:'Sales returns',purchase:'Purchases',pret:'Purchase returns',cpay:'Customer receipts',spay:'Supplier payments',expense:'Expenses',asset:'Asset purchases',dispose:'Asset disposals',depr:'Depreciation',transfer:'Transfers',adjust:'Stock adjustments',open:'Opening balances',manual:'Manual journals',cashtx:'Other receipts/payments',reversal:'Cancellations'};
 function cashFlow(f,t){const cash=DB.accounts.filter(a=>a.sub==='cash'||a.sub==='bank').map(a=>a.code);let open=0;const g={};
  for(const j of DB.journal)for(const l of j.lines)if(cash.includes(l.acc)){const x=l.dr-l.cr;if(j.date<f)open+=x;else if(j.date<=t){const k=(j.src&&j.src.type)||'manual';g[k]=(g[k]||0)+x}}
  const sec={op:['sale','sret','purchase','pret','cpay','spay','expense','adjust','reversal'],inv:['asset','dispose'],fin:['open','manual','cashtx','transfer']};const out={};
@@ -416,7 +452,7 @@ function root(r,a){ST.stack=[];ST.route=r;ST.arg=a;ST.menu=false;render();scroll
 function openMenu(){ST.menu=true;$('#drawer').classList.add('open')}
 function closeMenu(){ST.menu=false;$('#drawer').classList.remove('open')}
 function render(){const app=$('#app');if(!DB)return;if(!ME){app.innerHTML=loginH();return}
- if(!can(ROUTEMOD[ST.route]||'dash')){ST.route='home';ST.stack=[]}
+ const mod=ST.route==='paydet'?(((DB.payments.find(x=>x.id===ST.arg)||{}).kind==='s')?'purchase':'sales'):(ROUTEMOD[ST.route]||'dash');if(!can(mod)){ST.route='home';ST.stack=[]}
  let o;try{o=R[ST.route](ST.arg)}catch(e){console.error(e);o={t:'Error',h:`<div class="card">Something went wrong: ${esc(e.message)}</div>`}}
  const tabs=TABS.filter(t=>can(t[3])).map(t=>`<button class="${ST.route===t[0]?'on':''}" onclick="root('${t[0]}')"><span>${t[1]}</span>${t[2]}</button>`).join('')+`<button onclick="openMenu()"><span>☰</span>More</button>`;
  let mh='',sec='';MENU.forEach(m=>{if(m[0]==='#'){sec=m[1];mh+=`<h2>${m[1]}</h2>`}else if(can(m[2]))mh+=`<button class="mi ${ST.route===m[0]?'on':''}" onclick="root('${m[0]}')">${m[1]}</button>`});
@@ -469,10 +505,15 @@ function docList(kind){const S=kind==='s',L=S?DB.sales:DB.purchases,f=FL(S?'sale
  return more(a,S?'sales':'purchases',s=>rowH(s.no+' · '+esc(S?custName(s.cust):suppName(s.supp)),fd(s.date)+' '+stBadge(s),money(s.total),`go('${S?'saledet':'purdet'}','${s.id}')`,s.status==='posted'&&outs(s)>0?'Due '+money(outs(s)):''))}
 LIST.sales=()=>docList('s');LIST.purchases=()=>docList('p');
 const STF=[['','All'],['posted','Posted'],['unpaid','Unpaid'],['cancelled','Cancelled']];
-R.sales=()=>({t:'Sales Invoices',a:can('sales',true)?`<button class="btn sm" onclick="go('newsale')">+ New</button>`:'',h:listShell('sales',{ph:'Search invoice or customer',st:STF,dates:1})});
-R.purchases=()=>({t:'Purchase Invoices',a:can('purchase',true)?`<button class="btn sm" onclick="go('newpur')">+ New</button>`:'',h:listShell('purchases',{ph:'Search bill or supplier',st:STF,dates:1})});
+R.sales=()=>({t:'Sales Invoices',a:can('sales',true)?`<button class="btn sm" onclick="ST.doc=null;go('newsale')">+ New</button>`:'',h:listShell('sales',{ph:'Search invoice or customer',st:STF,dates:1})});
+R.purchases=()=>({t:'Purchase Invoices',a:can('purchase',true)?`<button class="btn sm" onclick="ST.doc=null;go('newpur')">+ New</button>`:'',h:listShell('purchases',{ph:'Search bill or supplier',st:STF,dates:1})});
 const emptyLine=()=>({prod:'',qty:1,rate:0,disc:0,unit:''});
 function docInit(k){const ca=DB.accounts.find(a=>a.sub==='cash'&&a.active),ba=DB.accounts.find(a=>a.sub==='bank'&&a.active);ST.doc={kind:k,date:today(),party:'',phone:'',addr:'',wh:DB.warehouses[0].id,items:[emptyLine()],taxRate:0,mode:'cash',cashAcc:ca?ca.code:'1000',bankAcc:ba?ba.code:'1010',pays:[{acc:ca?ca.code:'1000',amt:''}],notes:''}}
+function docEdit(k,id){const S=k==='s',s=(S?DB.sales:DB.purchases).find(x=>x.id===id);if(!s)return;const ca=DB.accounts.find(a=>a.sub==='cash'&&a.active),ba=DB.accounts.find(a=>a.sub==='bank'&&a.active),pays=s.pays||[];let mode='credit';
+ if(pays.length===1&&r2(s.paid0)===r2(s.total)){const a=acc(pays[0].acc);mode=a&&a.sub==='bank'?'bank':'cash'}else if(pays.length)mode='split';
+ const pt=S?cust(s.cust):supp(s.supp)||{};
+ ST.doc={kind:k,edit:id,editNo:s.no,date:s.date,party:S?s.cust:s.supp,phone:S?(s.phone||''):'',addr:S?((pt&&pt.address)||''):'',wh:s.wh,items:s.items.map(it=>({prod:it.prod,qty:it.uq!=null?it.uq:it.qty,rate:it.ur!=null?it.ur:it.rate,disc:it.disc,unit:(it.u&&lc(it.u)!==lc((prod(it.prod)||{}).unit))?it.u:''})),taxRate:s.taxRate,mode,cashAcc:mode==='cash'?pays[0].acc:(ca?ca.code:'1000'),bankAcc:mode==='bank'?pays[0].acc:(ba?ba.code:'1010'),pays:pays.length?pays.map(p=>({acc:p.acc,amt:p.amt})):[{acc:ca?ca.code:'1000',amt:''}],notes:s.notes||''};
+ go(S?'newsale':'newpur')}
 function newDocFor(k,id){ST.doc=null;docInit(k);docParty0(k,id);go(k==='s'?'newsale':'newpur')}
 function docParty0(k,id){const p=k==='s'?cust(id):supp(id);ST.doc.party=p?p.id:'';if(p){ST.doc.phone=p.phone||'';ST.doc.addr=p.address||''}}
 const partyName=(k,id)=>id?(k==='s'?custName(id):suppName(id)):'';
@@ -501,7 +542,7 @@ function docTot(){const d=ST.doc;if(!d)return;const{T,its}=docTotals();its.forEa
  const e=$('#tot');if(e)e.innerHTML=`<div class="t"><span>Subtotal</span><span>${money(T.gross)}</span></div><div class="t"><span>Discount</span><span>- ${money(T.disc)}</span></div>${DB.settings.taxOn?`<div class="t"><span>Tax (${num(d.taxRate)}%)</span><span>${money(T.tax)}</span></div>`:''}<div class="t big"><span>Grand total</span><span>${money(T.total)}</span></div>${pays.map(p=>`<div class="t"><span>Paid: ${esc((acc(p.acc)||{}).name)}</span><span>${money(num(p.amt))}</span></div>`).join('')}<div class="t"><span>${d.kind==='s'?'On credit (customer owes)':'On credit (you owe)'}</span><b class="${T.total-paid<0?'neg':''}">${money(T.total-paid)}</b></div>`;
  ['cash','bank','credit','split'].forEach(m=>{const b=$('#m_'+m);if(b)b.className='btn sm '+(d.mode===m?'':'sec')});const ph=$('#phmsg');if(ph)ph.style.display=(d.phone||'').trim()?'none':'block'}
 function docForm(k){if(!ST.doc||ST.doc.kind!==k)docInit(k);const d=ST.doc,S=k==='s',P=S?DB.customers:DB.suppliers;
- return{t:S?'New Sale':'New Purchase',after:docTot,h:`<div class="card"><div class="g2"><label>Date<input type="date" value="${d.date}" onchange="ST.doc.date=this.value"></label><label>Stock location<select onchange="ST.doc.wh=this.value;$('#items').innerHTML=docItemsH();docTot()">${DB.warehouses.map(w=>opt(w.id,w.name,d.wh)).join('')}</select></label></div>
+ return{t:d.edit?'Edit '+d.editNo:(S?'New Sale':'New Purchase'),after:docTot,h:`${d.edit?`<div class="card"><small>Saving replaces this invoice: the old accounting and stock entries are reversed and the corrected ones are posted. The invoice number stays <b>${esc(d.editNo)}</b>. The change is recorded in the audit log.</small></div>`:''}<div class="card"><div class="g2"><label>Date<input type="date" value="${d.date}" onchange="ST.doc.date=this.value"></label><label>Stock location<select onchange="ST.doc.wh=this.value;$('#items').innerHTML=docItemsH();docTot()">${DB.warehouses.map(w=>opt(w.id,w.name,d.wh)).join('')}</select></label></div>
  <label>${S?'Customer':'Supplier'}<input list="plst" value="${esc(partyName(k,d.party))}" placeholder="Type to search" onchange="docParty(this.value)"></label>
  ${S?`<div class="g2"><label>Phone number *<input id="dph" type="tel" inputmode="tel" value="${esc(d.phone)}" oninput="ST.doc.phone=this.value;docTot()"></label><label>Address<input id="dad" value="${esc(d.addr)}" oninput="ST.doc.addr=this.value"></label></div><small id="phmsg" class="neg">Customer phone number is required before submitting the invoice.</small><br>`:`<small id="sph">${d.party?'Phone: '+esc((supp(d.party)||{}).phone||'-'):''}</small><br>`}
  <button class="btn sec sm" onclick="go('${S?'custform':'suppform'}')">+ New ${S?'customer':'supplier'}</button>
@@ -509,12 +550,12 @@ function docForm(k){if(!ST.doc||ST.doc.kind!==k)docInit(k);const d=ST.doc,S=k===
  <div class="card"><h3>Items</h3><div id="items">${docItemsH()}</div><button class="btn sec block" onclick="docAdd()">+ Add another item</button></div>
  <div class="card"><h3>Payment</h3>${DB.settings.taxOn?`<label>Tax<select onchange="ST.doc.taxRate=this.value;docTot()">${DB.settings.taxes.map(x=>`<option value="${x.rate}" ${+x.rate===+d.taxRate?'selected':''}>${esc(x.name)} (${x.rate}%)</option>`).join('')}</select></label>`:''}<div id="payui">${payUI()}</div></div>
  <div class="card tot" id="tot"></div><div class="card"><label>Notes<textarea oninput="ST.doc.notes=this.value">${esc(d.notes)}</textarea></label></div>
- <button class="btn block" onclick="act(()=>saveDoc())">Post ${S?'sale':'purchase'}</button>`}}
+ <button class="btn block" onclick="act(()=>saveDoc())">${d.edit?'Save changes':'Post '+(S?'sale':'purchase')}</button>`}}
 R.newsale=()=>docForm('s');R.newpur=()=>docForm('p');
 function saveDoc(){const d=ST.doc,S=d.kind==='s',{T}=docTotals(),dd=Object.assign({},d,{pays:docPays(T.total)});let id;
- try{id=S?postSale(dd):postPurchase(dd)}catch(e){if((e.code==='LIMIT'||e.code==='NEG')&&ME.role==='admin'){ask(esc(e.message)+' <b>Authorize this exception as administrator? It will be recorded in the audit log.</b>',()=>{if(e.code==='LIMIT')d.authLimit=true;else d.authNeg=true;saveDoc()},'Authorize','ok');return}
+ try{id=d.edit?editDoc(S?'sale':'purchase',d.edit,dd):(S?postSale(dd):postPurchase(dd))}catch(e){if((e.code==='LIMIT'||e.code==='NEG')&&ME.role==='admin'){ask(esc(e.message)+' <b>Authorize this exception as administrator? It will be recorded in the audit log.</b>',()=>{if(e.code==='LIMIT')d.authLimit=true;else d.authNeg=true;saveDoc()},'Authorize','ok');return}
   if(e.code)e.message+=' Only the administrator can authorize this.';throw e}
- ST.doc=null;toast((S?'Sale':'Purchase')+' posted');ST.stack.pop();swap(S?'saledet':'purdet',id)}
+ const was=d.edit;ST.doc=null;toast(was?'Invoice updated':(S?'Sale':'Purchase')+' posted');ST.stack.pop();swap(S?'saledet':'purdet',id)}
 function bizHead(){const s=DB.settings;return`<div style="display:flex;gap:10px;align-items:center">${s.logo?`<img src="${s.logo}" alt="" style="height:46px;border-radius:6px">`:''}<div><h2>${esc(s.biz)}</h2><small>${esc(s.addr)}${s.phone?' · '+esc(s.phone):''}${s.email?' · '+esc(s.email):''}</small>${s.ntn||s.strn?`<small style="display:block">${s.ntn?'NTN: '+esc(s.ntn):''} ${s.strn?'STRN: '+esc(s.strn):''}</small>`:''}</div></div>`}
 function jeBlock(ids){return`<details class="more noprint"><summary>Accounting entries created</summary>${ids.map(id=>{const j=DB.journal.find(x=>x.id===id);return j?`<div style="margin:8px 0"><b>${j.no}</b> <small>${esc(j.desc)}</small>${tbl(['Account','Debit','Credit'],j.lines.map(l=>[esc(accName(l.acc)),l.dr?N(l.dr):'',l.cr?N(l.cr):'']),{num:[1,2]})}</div>`:''}).join('')}</details>`}
 function docDetail(kind,id){const S=kind==='s',s=(S?DB.sales:DB.purchases).find(x=>x.id===id);if(!s)return{t:'Not found',h:'<div class="empty">Document not found.</div>'};
@@ -525,9 +566,10 @@ function docDetail(kind,id){const S=kind==='s',s=(S?DB.sales:DB.purchases).find(
  <div><small>${S?'Bill to':'Supplier'}</small><br><b>${esc(pty?pty.name:'-')}</b>${S?`<br><small>Phone: ${esc(s.phone||(pty&&pty.phone)||'-')}</small>`:pty&&pty.phone?'<br><small>'+esc(pty.phone)+'</small>':''}${pty&&pty.address?'<br><small>'+esc(pty.address)+'</small>':''}${pty&&(pty.ntn||pty.strn)?'<br><small>NTN '+esc(pty.ntn||'-')+' · STRN '+esc(pty.strn||'-')+'</small>':''}</div>
  ${tbl(['Item','Qty','Rate','Disc.','Amount'],rows,{num:[2,3,4]})}
  <div class="tot"><div class="t"><span>Subtotal</span><span>${money(s.gross)}</span></div><div class="t"><span>Discount</span><span>- ${money(s.disc)}</span></div>${showTax?`<div class="t"><span>Tax (${s.taxRate}%)</span><span>${money(s.tax)}</span></div>`:''}<div class="t big"><span>Grand total</span><span>${money(s.total)}</span></div>
- ${(s.pays||[]).map(p=>`<div class="t"><span>Paid - ${esc((acc(p.acc)||{}).name||p.acc)}</span><span>${money(p.amt)}</span></div>`).join('')}${later>0?`<div class="t"><span>Paid later</span><span>${money(later)}</span></div>`:''}${s.adj?`<div class="t"><span>Credited by returns</span><span>${money(s.adj)}</span></div>`:''}<div class="t"><span>Balance</span><b>${money(o)}</b></div></div>
+ ${(s.pays||[]).map(p=>`<div class="t"><span>Paid - ${esc((acc(p.acc)||{}).name||p.acc)}</span><span>${money(p.amt)}</span></div>`).join('')}${later>0?`<div class="t"><span>Paid later</span><span>${money(later)}</span></div>`:''}${(s.adjs||[]).map(a=>`<div class="t"><span>${S?'Discount allowed':'Discount received'} (${fd(a.date)})${a.reason?' - '+esc(a.reason):''}</span><span>- ${money(a.amt)}</span></div>`).join('')}${r2((s.adj||0)-(s.adjs||[]).reduce((x,a)=>x+a.amt,0))>0?`<div class="t"><span>Credited by returns</span><span>${money(r2((s.adj||0)-(s.adjs||[]).reduce((x,a)=>x+a.amt,0)))}</span></div>`:''}<div class="t"><span>Balance</span><b>${money(o)}</b></div></div>
  ${s.notes?`<p><small>Notes: ${esc(s.notes)}</small></p>`:''}${S?`<p><small>${esc(DB.settings.terms)}</small></p>`:''}<div class="sig"><div>${S?'Customer':'Supplier'}</div><div>Authorized signature</div></div></div>
- <div class="btns noprint" style="margin-top:12px">${s.status==='posted'&&w?`${o>0&&pty?`<button class="btn ok" onclick="go('${S?'newrcpt':'newpay'}','${pty.id}')">${S?'Receive payment':'Make payment'}</button>`:''}<button class="btn sec" onclick="go('${S?'newsret':'newpret'}','${s.id}')">Return goods</button><button class="btn bad" onclick="ask('Cancel ${s.no}? Stock and accounting entries will be reversed.',()=>{voidDoc('${kind==='s'?'sale':'purchase'}','${s.id}');toast('Cancelled');render()},'Cancel document')">Cancel</button>`:''}</div>${jeBlock(s.jes)}`}}
+ <div class="btns noprint" style="margin-top:12px">${s.status==='posted'&&w?`${o>0&&pty?`<button class="btn ok" onclick="go('${S?'newrcpt':'newpay'}','${pty.id}')">${S?'Receive payment':'Make payment'}</button>`:''}${o>0?`<button class="btn sec" onclick="discountUI('${kind}','${s.id}')">Give discount</button>`:''}<button class="btn sec" onclick="docEdit('${kind}','${s.id}')">Edit</button><button class="btn sec" onclick="go('${S?'newsret':'newpret'}','${s.id}')">Return goods</button><button class="btn bad" onclick="ask('Cancel ${s.no}? Stock and accounting entries will be reversed. The invoice stays on record as Cancelled.',()=>{voidDoc('${kind==='s'?'sale':'purchase'}','${s.id}');toast('Cancelled');render()},'Cancel document')">Cancel</button>`:''}${ME.role==='admin'?`<button class="btn bad" onclick="ask('Delete ${s.no} permanently? The invoice, its accounting entries and its stock movements are removed completely. This cannot be undone (the audit log keeps a note).',()=>{deleteDoc('${kind==='s'?'sale':'purchase'}','${s.id}');toast('Deleted');back()},'Delete permanently')">Delete</button>`:''}</div>${(s.adjs||[]).length&&w&&s.status==='posted'?`<div class="card noprint"><h3>Discounts given after invoice</h3>${s.adjs.map((a,i)=>rowH(fd(a.date)+(a.reason?' · '+esc(a.reason):''),'',money(a.amt),`ask('Remove this discount of ${money(a.amt)}? The balance due goes back up.',()=>{removeAdj('${kind==='s'?'sale':'purchase'}','${s.id}',${i});toast('Discount removed');render()},'Remove discount')`)).join('')}<small>Tap a discount to remove it.</small></div>`:''}${jeBlock(s.jes)}`}}
+function discountUI(k,id){const s=(k==='s'?DB.sales:DB.purchases).find(x=>x.id===id);showModal(`<h3>${k==='s'?'Give discount':'Discount received'}</h3><small>Balance due now: <b>${money(outs(s))}</b>. The discount lowers the balance and is recorded in the accounts today.</small><label>Discount amount<input id="dsa" type="number" inputmode="decimal"></label><label>Reason (optional)<input id="dsr"></label><div class="btns"><button class="btn sec" onclick="closeModal()">Cancel</button><button class="btn" onclick="act(()=>{adjustDoc('${k==='s'?'sale':'purchase'}','${id}',v('dsa'),v('dsr'));closeModal();toast('Discount saved');render()})">Save discount</button></div>`)}
 R.saledet=id=>docDetail('s',id);R.purdet=id=>docDetail('p',id);
 /* returns */
 function retList(kind){const S=kind==='s',L=S?DB.salesReturns:DB.purchaseReturns;return L.length?[...L].sort(byDD).map(r=>rowH(r.no+' · '+(S?r.inv:r.pno),fd(r.date)+' · '+esc(S?custName(r.cust):suppName(r.supp)),money(r.refund),`go('retdet','${kind}:${r.id}')`)).join(''):'<div class="empty">No returns yet.</div>'}
@@ -566,13 +608,17 @@ function partyDetail(kind,id){const C=kind==='c',p=C?cust(id):supp(id),b=partyBa
  <div class="ph"><h2>${esc(DB.settings.biz)}</h2><b>Statement of account - ${esc(p.name)}</b></div><h3>Ledger / statement</h3>
  ${tbl(['Date','Details','Debit','Credit','Balance'],led.map(x=>({c:[fd(x.j.date),esc(x.j.desc),x.l.dr?N(x.l.dr):'',x.l.cr?N(x.l.cr):'',N(x.b)],oc:`openJ('${x.j.id}')`})),{num:[2,3,4]})}</div>`}}
 R.custdet=id=>partyDetail('c',id);R.suppdet=id=>partyDetail('s',id);
-function payList(kind){const L=DB.payments.filter(p=>p.kind===kind).sort(byDD);return L.length?L.map(p=>rowH(p.no+' · '+esc(kind==='c'?custName(p.party):suppName(p.party)),fd(p.date)+' '+(p.status==='cancelled'?badge('Cancelled','bad'):''),money(p.amount),can(kind==='c'?'sales':'purchase',true)&&p.status==='posted'?`ask('Cancel payment ${p.no}?',()=>{voidPayment('${p.id}');toast('Cancelled');render()},'Cancel payment')`:'')).join(''):'<div class="empty">No payments yet.</div>'}
-R.custpay=()=>({t:'Customer Payments',a:can('sales',true)?`<button class="btn sm" onclick="go('newrcpt')">+ New</button>`:'',h:'<small>Tap a payment to cancel it.</small>'+payList('c')});
-R.supppay=()=>({t:'Supplier Payments',a:can('purchase',true)?`<button class="btn sm" onclick="go('newpay')">+ New</button>`:'',h:'<small>Tap a payment to cancel it.</small>'+payList('s')});
+function payList(kind){const L=DB.payments.filter(p=>p.kind===kind).sort(byDD);return L.length?L.map(p=>rowH(p.no+' · '+esc(kind==='c'?custName(p.party):suppName(p.party)),fd(p.date)+' '+(p.status==='cancelled'?badge('Cancelled','bad'):''),money(p.amount),`go('paydet','${p.id}')`)).join(''):'<div class="empty">No payments yet.</div>'}
+R.custpay=()=>({t:'Customer Payments',a:can('sales',true)?`<button class="btn sm" onclick="go('newrcpt')">+ New</button>`:'',h:'<small>Tap a payment to edit or cancel it.</small>'+payList('c')});
+R.supppay=()=>({t:'Supplier Payments',a:can('purchase',true)?`<button class="btn sm" onclick="go('newpay')">+ New</button>`:'',h:'<small>Tap a payment to edit or cancel it.</small>'+payList('s')});
 function payForm(kind,pid){const C=kind==='c',P=C?DB.customers:DB.suppliers,pa=payAccts();return{t:C?'Receive Payment':'Make Payment',h:`<div class="card"><label>${C?'Customer':'Supplier'}<select id="pp" onchange="const b=document.getElementById('pbal');b.textContent='Balance: '+(this.selectedOptions[0].dataset.b)">${P.map(p=>`<option value="${p.id}" data-b="${money(partyBal(kind,p.id))}" ${p.id===pid?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><small id="pbal">Balance: ${P.length?money(partyBal(kind,pid||P[0].id)):''}</small>
  <label>Amount<input id="pam" type="number" inputmode="decimal"></label><label>${C?'Money goes into':'Paid from'}${paySel('pacc',pa[0]?pa[0].code:'1000')}</label><div class="g2"><label>Date<input id="pdt" type="date" value="${today()}"></label><label>Reference<input id="pref"></label></div></div>
  <button class="btn block" onclick="act(()=>{const d={party:v('pp'),amount:v('pam'),acc:v('pacc'),date:v('pdt'),ref:v('pref')};${C?'receive':'payout'}(d);toast('Payment saved');back()})">Save payment</button>`}}
 R.newrcpt=id=>payForm('c',id);R.newpay=id=>payForm('s',id);
+R.paydet=id=>{const p=DB.payments.find(x=>x.id===id);if(!p)return{t:'Not found',h:'<div class="empty">Payment not found.</div>'};const C=p.kind==='c',w=can(C?'sales':'purchase',true);
+ return{t:p.no,h:`<div class="card"><b>${C?'Payment received from ':'Payment made to '}${esc(C?custName(p.party):suppName(p.party))}</b> ${p.status==='cancelled'?badge('Cancelled','bad'):''}<br><small>${fd(p.date)} · ${esc((acc(p.acc)||{}).name)} · Ref ${esc(p.ref||'-')}</small><div class="kp" style="margin:8px 0 0">${kpi('Amount',money(p.amount),C?'g':'r')}</div></div>
+ ${p.status==='posted'&&w?`<div class="card"><h3>Edit payment</h3><label>Amount<input id="ep_a" type="number" inputmode="decimal" value="${p.amount}"></label><label>${C?'Money goes into':'Paid from'}${paySel('ep_acc',p.acc)}</label><div class="g2"><label>Date<input id="ep_d" type="date" value="${p.date}"></label><label>Reference<input id="ep_r" value="${esc(p.ref||'')}"></label></div></div>
+ <button class="btn block" onclick="act(()=>{const nid=editPayment('${p.id}',{amount:v('ep_a'),acc:v('ep_acc'),date:v('ep_d'),ref:v('ep_r')});toast('Payment updated');ST.stack.pop();swap('paydet',nid)})">Save changes</button><button class="btn bad block" onclick="ask('Cancel payment ${p.no}? The invoice balance will go back up.',()=>{voidPayment('${p.id}');toast('Cancelled');render()},'Cancel payment')">Cancel payment</button>`:''}${jeBlock([p.je])}`}};
 
 /* ================= INVENTORY ================= */
 LIST.products=()=>{const f=FL('products'),q=f.q.toLowerCase();return more(DB.products.filter(p=>(!q||(p.name+' '+p.sku+' '+(p.barcode||'')+' '+(p.cat||'')+' '+(p.brand||'')).toLowerCase().includes(q))&&(!f.s||(f.s==='low'?sq(p.id)<=p.min&&sq(p.id)>0:f.s==='out'?sq(p.id)<=0:f.s==='off'?!p.active:p.active))).sort((a,b)=>a.name.localeCompare(b.name)),'products',p=>{const q=sq(p.id);return rowH(esc(p.name),esc(p.sku)+' · '+esc(p.cat||'')+(p.active?'':' · inactive'),`<span class="${q<=0?'neg':q<=p.min?'':'pos'}">${q} ${esc(p.unit)}</span>`,`go('proddet','${p.id}')`,money(p.price))})};
@@ -624,11 +670,11 @@ R.cashtx=()=>{const A=payAccts();return{t:'Receipt / Payment',h:`<div class="car
  <button class="btn block" onclick="act(()=>{postCashTx({dir:v('cd'),cash:v('cc'),other:v('co'),amount:v('cam'),date:v('cdt'),desc:v('cde')});toast('Saved');back()})">Save</button>`}};
 
 /* ================= ACCOUNTING ================= */
-R.coa=()=>({t:'Chart of Accounts',a:can('accounting',true)?`<button class="btn sm" onclick="go('acctform')">+ New</button>`:'',h:Object.keys(TYPES).map(ty=>`<h3>${TYPES[ty]}</h3>`+DB.accounts.filter(a=>a.type===ty).map(a=>rowH(a.code+' · '+esc(a.name),(a.active?'':'Inactive ')+(a.parent?'Under '+a.parent:''),money(bal(a.code)),`go('ledger',{code:'${a.code}'})`)).join('')).join('')});
+R.coa=()=>({t:'Chart of Accounts',a:can('accounting',true)?`<button class="btn sm" onclick="go('acctform')">+ New</button>`:'',h:'<small>Tap an account to see its ledger. Use "Edit account" there to rename, hide or delete it.</small>'+Object.keys(TYPES).map(ty=>`<h3>${TYPES[ty]}</h3>`+DB.accounts.filter(a=>a.type===ty).map(a=>rowH(a.code+' · '+esc(a.name),(a.active?'':'Inactive ')+(a.parent?'Under '+a.parent:''),money(bal(a.code)),`go('ledger',{code:'${a.code}'})`)).join('')).join('')});
 R.acctform=code=>{const o=code?acc(code):{type:'asset',sub:'',active:true};return{t:code?'Edit account':'New account',h:`<div class="card">${code?`<b>${code}</b>`:`<label>Account code (3-6 digits)<input id="ac" inputmode="numeric"></label>`}<label>Name<input id="an2" value="${esc(o.name||'')}"></label>
  ${code?`<small>Type: ${TYPES[o.type]}</small>`:`<label>Type<select id="at" onchange="document.getElementById('ak').style.display=this.value==='asset'?'block':'none'">${Object.keys(TYPES).map(k=>opt(k,TYPES[k],o.type)).join('')}</select></label><div id="ak"><label>Kind of asset<select id="as"><option value="">Normal asset</option><option value="cash">Cash account</option><option value="bank">Bank account</option></select></label></div><label>Opening balance<input id="ao" type="number" inputmode="decimal"></label>`}
  <label>Parent account<select id="ap2"><option value="">None</option>${DB.accounts.filter(a=>a.code!==code).map(a=>opt(a.code,a.code+' '+a.name,o.parent)).join('')}</select></label>${code?`<label>Status<select id="aa">${opt('1','Active',o.active?'1':'0')}${opt('0','Inactive',o.active?'1':'0')}</select></label>`:''}</div>
- <button class="btn block" onclick="act(()=>{saveAccount({code:v('ac'),name:v('an2'),type:v('at'),sub:v('as'),open:v('ao'),parent:v('ap2'),active:v('aa')||'1'},${code?`'${code}'`:'null'});toast('Saved');back()})">Save account</button>`}};
+ ${code&&ME.role==='admin'?`<button class="btn bad block" onclick="ask('Delete account ${code}? Only accounts with no transactions can be deleted.',()=>{deleteAccount('${code}');toast('Account deleted');root('coa')},'Delete account')">Delete account</button>`:''}<button class="btn block" onclick="act(()=>{saveAccount({code:v('ac'),name:v('an2'),type:v('at'),sub:v('as'),open:v('ao'),parent:v('ap2'),active:v('aa')||'1'},${code?`'${code}'`:'null'});toast('Saved');back()})">Save account</button>`}};
 LIST.journal=()=>{const f=FL('journal'),q=f.q.toLowerCase();return more(DB.journal.filter(j=>(!q||(j.no+' '+j.desc+' '+j.ref).toLowerCase().includes(q))&&inR(j.date,f.from,f.to)&&(!f.s||j.src.type===f.s)).sort(byDD),'journal',j=>rowH(j.no+' · '+esc(j.desc),fd(j.date)+' · '+(SRCN[j.src.type]||'')+(j.rev?' '+badge('Reversed','warn'):''),money(j.lines.reduce((s,l)=>s+l.dr,0)),`go('jedet','${j.id}')`))};
 R.journal=()=>({t:'Journal Entries',a:can('accounting',true)?`<button class="btn sm" onclick="ST.je=null;go('newje')">+ New</button>`:'',h:listShell('journal',{ph:'Search journal',st:[['','All sources']].concat(Object.entries(SRCN)),dates:1})});
 R.jedet=id=>{const j=DB.journal.find(x=>x.id===id),s=j.src||{},map={sale:'saledet',purchase:'purdet',expense:'expdet',asset:'assetdet',depr:'assetdet',dispose:'assetdet'},m=map[s.type];
@@ -642,7 +688,7 @@ function jeLines(){return ST.je.lines.map((l,i)=>`<div class="line"><div class="
 function jeTot(){const d=r2(ST.je.lines.reduce((s,l)=>s+num(l.dr),0)),c=r2(ST.je.lines.reduce((s,l)=>s+num(l.cr),0)),e=$('#jt');if(e)e.innerHTML=`<div class="t"><span>Total debit</span><span>${money(d)}</span></div><div class="t"><span>Total credit</span><span>${money(c)}</span></div><div class="t big"><span>${d===c&&d>0?'Balanced ✓':'Difference'}</span><span class="${d===c?'pos':'neg'}">${money(d-c)}</span></div>`}
 R.ledger=a=>{a=a||{};const k='gl',r=rg(k,'fy');if(a.f){r.p='custom';r.f=a.f;r.t=a.t}if(a.code)ST.glc=a.code;const code=ST.glc||'1000',L=ledgerLines(code,r.f,r.t),n=nat(code);let run=r2(n*L.open);
  const rows=L.lines.map(x=>{run=r2(run+n*(x.l.dr-x.l.cr));return{c:[fd(x.j.date),esc(x.j.desc),x.l.dr?N(x.l.dr):'',x.l.cr?N(x.l.cr):'',N(run)],oc:`go('jedet','${x.j.id}')`}});
- return{t:'General Ledger',h:`<div class="card noprint"><label>Account${acctSel('glacc',code).replace('<select','<select onchange="ST.glc=this.value;render()"')}</label></div>${rgUI(k,['today','week','month','prevmonth','quarter','year','fy','prevfy','custom'])}${rptWrap('Ledger: '+esc(accName(code)),fd(r.f)+' to '+fd(r.t),`<div class="kp">${kpi('Opening',money(n*L.open))}${kpi('Closing',money(run))}</div>${tbl(['Date','Details','Debit','Credit','Balance'],rows,{num:[2,3,4]})}`)}`}};
+ return{t:'General Ledger',a:can('accounting',true)?`<button class="btn sm" onclick="go('acctform','${code}')">Edit account</button>`:'',h:`<div class="card noprint"><label>Account${acctSel('glacc',code).replace('<select','<select onchange="ST.glc=this.value;render()"')}</label></div>${rgUI(k,['today','week','month','prevmonth','quarter','year','fy','prevfy','custom'])}${rptWrap('Ledger: '+esc(accName(code)),fd(r.f)+' to '+fd(r.t),`<div class="kp">${kpi('Opening',money(n*L.open))}${kpi('Closing',money(run))}</div>${tbl(['Date','Details','Debit','Credit','Balance'],rows,{num:[2,3,4]})}`)}`}};
 R.tb=()=>{const r=rg('tb','fy'),T=trialBalance(r.t);return{t:'Trial Balance',h:rgUI('tb',['today','month','year','fy','custom'])+rptWrap('Trial Balance','As at '+fd(r.t),tbl(['Account','Debit','Credit'],T.rows.map(x=>({c:[esc(x.code+' · '+x.name),x.dr?N(x.dr):'',x.cr?N(x.cr):''],oc:`go('ledger',{code:'${x.code}',f:'${r.f}',t:'${r.t}'})`})).concat([{cl:'s',c:['Total',N(T.dr),N(T.cr)]}]),{num:[1,2]})+`<div class="card ${T.dr===T.cr?'':'neg'}">${T.dr===T.cr?'✓ Debits equal credits':'✗ Debits and credits differ by '+money(T.dr-T.cr)}</div>`)}};
 function agePage(kind){const C=kind==='c',A=aging(kind),H=['Current','1-30','31-60','61-90','90+'],tot=H.map((_,i)=>r2(A.reduce((s,x)=>s+x.bk[i],0)));
  const inv=(C?DB.sales:DB.purchases).filter(s=>s.status==='posted'&&outs(s)>0).sort(byD);
@@ -708,7 +754,7 @@ function cashBreak(subs,f,t,isCash){const codes=DB.accounts.filter(a=>subs.inclu
  const ins=Object.entries(gi).map(([l,v])=>({l,v:r2(v)})).filter(x=>x.v),outs=Object.entries(go_).map(([l,v])=>({l,v:r2(v)})).filter(x=>x.v);
  const tin=r2(ins.reduce((a,x)=>a+x.v,0)),tout=r2(outs.reduce((a,x)=>a+x.v,0));return{open:r2(open),ins,outs,tin,tout,tinx:r2(tinx),toutx:r2(toutx),close:r2(open+tin-tout)}}
 function breakRows(B,w){const o=w||'Opening',r=[{cl:'s',c:[o,N(B.open)]},{cl:'h',c:['Money in','']}];B.ins.forEach(x=>r.push({cl:'i',c:[x.l,N(x.v)]}));r.push({cl:'s',c:['Total in',N(B.tin)]},{cl:'h',c:['Money out','']});B.outs.forEach(x=>r.push({cl:'i',c:[x.l,N(x.v)]}));r.push({cl:'s',c:['Total out',N(B.tout)]},{cl:'s',c:['Closing',N(B.close)]});return r}
-function openJ(jid){const j=DB.journal.find(x=>x.id===jid);if(!j)return;const t=(j.src&&j.src.type)||'manual',id=j.src&&j.src.id,m={sale:'saledet',purchase:'purdet',expense:'expdet',asset:'assetdet',depr:'assetdet',dispose:'assetdet'};
+function openJ(jid){const j=DB.journal.find(x=>x.id===jid);if(!j)return;const t=(j.src&&j.src.type)||'manual',id=j.src&&j.src.id;if(t==='docadj'&&id){if(DB.sales.some(x=>x.id===id))return go('saledet',id);if(DB.purchases.some(x=>x.id===id))return go('purdet',id)}const m={sale:'saledet',purchase:'purdet',expense:'expdet',asset:'assetdet',depr:'assetdet',dispose:'assetdet'};
  if(m[t]&&id&&(t!=='sale'||DB.sales.some(x=>x.id===id))&&(t!=='purchase'||DB.purchases.some(x=>x.id===id)))go(m[t],id);else if((t==='sret')&&id)go('retdet','s:'+id);else if(t==='pret'&&id)go('retdet','p:'+id);else go('jedet',jid)}
 R.cashhand=()=>{const r=rg('ch','today'),B=cashBreak(['cash'],r.f,r.t,true),A=DB.accounts.filter(a=>a.sub==='cash'&&a.active),w=can('cash',true);
  return{t:'Cash in Hand',h:`<div class="hero"><small>Cash in hand now (from actual cash movements)</small><b>${money(sumBal('cash'))}</b></div>${A.map(a=>rowH(esc(a.name),'Cash book',money(bal(a.code)),`ST.bs_cash='${a.code}';go('cashbook')`)).join('')}
@@ -869,13 +915,14 @@ function seedDemo(){
  ST.doc=null}
 
 /* ================= START ================= */
+function migrate(){let ch=false;COA.forEach(([code,name,type,sub,grp])=>{if(!acc(code)){DB.accounts.push({code,name,type,sub:sub||'',grp:grp||(type==='expense'?'opex':''),active:true,parent:''});ch=true}});if(ch)DB.accounts.sort((a,b)=>a.code.localeCompare(b.code));['recon','stmts'].forEach(k=>{if(!DB[k])DB[k]={}});['stmtLines','closings','recur','banks','salesReturns','purchaseReturns','payments','expenses','assets','depr','journal','stockTx','sales','purchases','customers','suppliers','products','audit'].forEach(k=>{if(!DB[k])DB[k]=[]});save()}
 async function init(){
  DB=load();
  if(!DB||!DB.accounts){DB=freshDB();const U=[['admin','Administrator','admin','admin123'],['accountant','Accountant','accountant','acc123'],['sales','Salesperson','sales','sales123'],['viewer','Viewer','viewer','view123']];
   for(const[un,name,role,pw]of U)DB.users.push({id:'u_'+un,un,name,role,hash:await sha(un+':'+pw),active:true});
   ME=DB.users[0];try{seedDemo()}catch(e){console.error(e)}ME=null;save()}
  try{const id=localStorage.getItem(SK);ME=id?(DB.users.find(u=>u.id===id&&u.active)||null):null}catch(e){}
- autoBackup();if(ME)autoRecurring();render()}
+ if(DB&&DB.accounts)migrate();autoBackup();if(ME)autoRecurring();render()}
 init();
 try{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(function(){})}catch(e){}
 </script>
